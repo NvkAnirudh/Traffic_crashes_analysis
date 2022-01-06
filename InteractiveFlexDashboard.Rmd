@@ -1,0 +1,119 @@
+---
+title: "Traffic Crashes Dashboard"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+runtime: shiny
+---
+
+<style>                     
+.navbar {
+  background-color:green;
+  border-color:black;
+}
+.navbar-brand {
+color:white!important;
+}
+</style>  
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(dplyr)
+library(plotly)
+library(shiny)
+library(hrbrthemes)
+library(knitr)
+library(readr)
+library(ggplot2)
+library(stringr)
+```
+
+```{r data}
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+preprocessed_data = read.csv("preprocessed_data.csv")
+
+#READING DATA
+
+Categorical.Variables1 = subset(colnames(preprocessed_data), !(colnames(preprocessed_data) %in% c('PRIMARY_CAUSE','DAMAGE')))
+Categorical.Variables2 = c("HOUR DISTRIBUTION", "PERIOD DISTRIBUTION", "REPORT DISTRIBUTION")
+Distribution.Variables3 = c("CRASH_HOUR", "CRASH_DAY_OF_WEEK", "CRASH_MONTH", "period")
+
+```
+
+
+# Distribution Dropdown
+
+Column{.sidebar data-width=200}
+-----------------------------------------------------------------------
+
+```{r}
+
+selectInput("categorical_variable1", label = "Select a Variable to observe the distibution", choices = Categorical.Variables1)
+
+selectInput("categorical_variable2", label = "Select a Variable to observe the distibution", choices = Categorical.Variables2)
+
+```
+
+
+
+
+
+Column {data-width=400}
+-----------------------------------------------------------------------
+
+### Chart A
+
+```{r}
+
+renderPlotly({
+if(input$categorical_variable1 == "PRIMARY_CAUSE"){
+  ggplotly(ggplot(data = as.data.frame(table(preprocessed_data[[input$categorical_variable1]])), aes(x = Var1, y = Freq)) +
+           geom_bar(stat="identity", color = "black", fill ="lightgreen") + ggtitle(input$categorical_variable1) +
+           ylab("Number of Crashes") + theme(axis.text.y = element_text(angle = 45, hjust = 1)) +coord_flip()
+           + ylab("Number of Crashes") +
+           xlab(paste("Diiferent types of ", input$categorical_variable1))
+           )
+}
+  else{
+    ggplotly(ggplot(data = as.data.frame(table(preprocessed_data[[input$categorical_variable1]])), aes(x = Var1, y = Freq)) +
+           geom_bar(stat="identity", color = "black", fill ="lightgreen") + ggtitle(input$categorical_variable1) +
+           ylab("Number of Crashes") + xlab(paste("Diiferent types of ", input$categorical_variable1))+ theme(axis.text.x = element_text(angle = 45, hjust = 1))
+           )
+  }
+
+})
+
+```
+
+Column {data-width=400}
+-----------------------------------------------------------------------
+
+### Chart B
+
+```{r}
+renderPlotly({
+  if(input$categorical_variable2 == "PERIOD DISTRIBUTION"){
+    fig <- plot_ly(preprocessed_data, labels = ~DAY_PERIOD, type = 'pie', title = input$categorical_variable2)
+    fig
+  }
+  else if(input$categorical_variable2 == "HOUR DISTRIBUTION"){
+ggplotly(
+as.data.frame(table(preprocessed_data$CRASH_HOUR)) %>%
+  ggplot( aes(x=Var1, y=Freq, group=1)) +
+  geom_line(color="black") +
+  geom_point(color="lightgreen", size=2) +
+  ggtitle("Crashes in Each Hour") +
+  ylab("Frequency") +
+  xlab("Hours")+
+  theme_ipsum()
+)
+  }
+  else{
+    fig <- plot_ly(preprocessed_data, labels = ~REPORT_TYPE, type = 'pie', title = input$categorical_variable2)
+  fig
+  }
+})
+
+```
+

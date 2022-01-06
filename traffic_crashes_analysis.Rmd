@@ -1,0 +1,622 @@
+---
+title: "Analysis of Traffic Crashes in Chicago from 2013-2021"
+output: 
+  html_document:
+    df_print: paged
+    toc: True
+    toc_float: True
+    theme: united
+    highlight: tango
+    code_folding: hide
+---
+
+#### *CS544 Foundations of Analysis with R (Prof. Kalathur, Fall 2021)*
+#### *Venkata Krishna Anirudh Nuti, Venkata Nadimpalli, Rajat Sharma*
+#### *December 6th, 2021*
+
+# Dataset Description and its Preprocessing
+The following data set describes the information about each traffic crash on city streets within the City of Chicago limits and under the jurisdiction of Chicago Police Department (CPD) from 2013 to 2021. The data was collected from **Chicago Data Portal**. The data set comprises of attributes such as
+speed-limits, weather and lighting during the time of crash, crash date and time, road_defect column which explains whether road had any role to play during the crash, how much damage was done, reason behind the crash, total injured, etc. The data set comprised of 550000 rows initially but after preprocessing by removing all the unknowns and missing values the number of rows have dropped to 440000.  
+
+New columns have been added based on other column values for analysis purposes. Columns such as DAY_PERIOD has been added so that it can signify whether the crash happened in the morning, afternoon, evening, or in the night. Also, similar variables have been grouped together such that it wouldn’t be complex for the end-user to understand after seeing the plot, For example, the PRIM_CONTIBUTORY_CAUSE which explains the reason behind the crash has values such as DISREGARDING YIELD SIGN, DISREGARDING TRAFFIC SIGN, DISREGARDING STOP SIGN, etc., All these have been grouped under the common name DISREGARDING SIGN BOARDS, for easier understanding.
+```{r include=FALSE}
+library(kableExtra)
+library(knitr)
+library(plotly)
+library(readr)
+library(ggplot2)
+library(stringr)
+library(dplyr)
+library(hrbrthemes)
+options(warn=-1)
+
+#READING DATA
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+data <- read.csv("Traffic_Crashes.csv", header= TRUE)
+
+#SELECTING ONLY REQUIRED COLUMNS
+preprocessed_data = data[,c(4,5,6,7,8,9,14,15,16,20,21,23,26,35,36,38,42,44)]
+
+#REMOVING UNKOWNS
+preprocessed_data <- preprocessed_data[!(preprocessed_data$WEATHER_CONDITION=="UNKNOWN"),]
+preprocessed_data <- preprocessed_data[!(preprocessed_data$ROADWAY_SURFACE_COND=="UNKNOWN"),]
+preprocessed_data <- preprocessed_data[!(preprocessed_data$ROAD_DEFECT=="UNKNOWN"),]
+preprocessed_data <- preprocessed_data[!(preprocessed_data$TRAFFIC_CONTROL_DEVICE=="UNKNOWN"),]
+preprocessed_data <- preprocessed_data[!(preprocessed_data$DEVICE_CONDITION=="UNKNOWN"),]
+preprocessed_data <- preprocessed_data[!(preprocessed_data$LIGHTING_CONDITION=="UNKNOWN"),]
+preprocessed_data <- preprocessed_data[!(preprocessed_data$DEVICE_CONDITION=="OTHER"),]
+
+#SELECTING ONLY ROWS WITH VALID VALUES
+preprocessed_data<-preprocessed_data[(preprocessed_data$REPORT_TYPE=="AMENDED" | preprocessed_data$REPORT_TYPE=="ON SCENE" | preprocessed_data$REPORT_TYPE=="NOT ON SCENE (DESK REPORT)"),]
+preprocessed_data<-preprocessed_data[(preprocessed_data$STREET_DIRECTION=="N" | preprocessed_data$STREET_DIRECTION=="E" | preprocessed_data$STREET_DIRECTION=="W" | preprocessed_data$STREET_DIRECTION=="S"),]
+
+#ADDITION OF NEW COLUMNS BASED ON OTHER COLUMN VALUES
+night = c(21,22,23,0,1,2,3,4) #ADDED NIGHT, EVENING, MORNING, AFTERNOON to analyze crashes
+evening = c(15,16,17,18,19,20)
+morning = c(5,6,7,8,9,10)
+afternoon =c(11,12,13,14)
+
+preprocessed_data$DAY_PERIOD[preprocessed_data$CRASH_HOUR %in% night] = "Night"
+preprocessed_data$DAY_PERIOD[preprocessed_data$CRASH_HOUR %in% evening] = "Evening"
+preprocessed_data$DAY_PERIOD[preprocessed_data$CRASH_HOUR %in% morning] = "Morning"
+preprocessed_data$DAY_PERIOD[preprocessed_data$CRASH_HOUR %in% afternoon] = "Afternoon"
+
+
+#GROUPED SIMILAR VARIABLES, as there are lot many variables. It was just increasing complexity and difficulty to understand the graph
+preprocessed_data <- preprocessed_data%>%mutate (PRIMARY_CAUSE = case_when(
+  PRIM_CONTRIBUTORY_CAUSE == "IMPROPER BACKING" ~ "IMPROPER DRIVING(WRONG SIDE, WRONG RULES)",
+  PRIM_CONTRIBUTORY_CAUSE == "IMPROPER TURNING/NO SIGNAL" ~ "IMPROPER DRIVING(WRONG SIDE, WRONG RULES)",
+  PRIM_CONTRIBUTORY_CAUSE == "IMPROPER OVERTAKING/PASSING" ~ "IMPROPER DRIVING(WRONG SIDE, WRONG RULES)",
+  PRIM_CONTRIBUTORY_CAUSE == "IMPROPER LANE USAGE" ~ "IMPROPER DRIVING(WRONG SIDE, WRONG RULES)",
+  PRIM_CONTRIBUTORY_CAUSE == "DRIVING ON WRONG SIDE/WRONG WAY" ~ "IMPROPER DRIVING(WRONG SIDE, WRONG RULES)",
+  PRIM_CONTRIBUTORY_CAUSE == "DISREGARDING YIELD SIGN" ~ "DISREGARDING SIGN BOARDS",
+  PRIM_CONTRIBUTORY_CAUSE == "DISREGARDING STOP SIGN" ~ "DISREGARDING SIGN BOARDS",
+  PRIM_CONTRIBUTORY_CAUSE == "DISREGARDING TRAFFIC SIGNALS" ~ "DISREGARDING SIGN BOARDS",
+  PRIM_CONTRIBUTORY_CAUSE == "DISREGARDING ROAD MARKINGS" ~ "DISREGARDING SIGN BOARDS",
+  PRIM_CONTRIBUTORY_CAUSE == "DISREGARDING OTHER TRAFFIC SIGNS" ~ "DISREGARDING SIGN BOARDS",
+  PRIM_CONTRIBUTORY_CAUSE == "ROAD ENGINEERING/SURFACE/MARKING DEFECTS" ~ "FAULTY ROAD",
+  PRIM_CONTRIBUTORY_CAUSE == "ROAD CONSTRUCTION/MAINTAINENCE" ~ "FAULTY ROAD",
+  PRIM_CONTRIBUTORY_CAUSE == "UNDER THE INFLUENCE OF ALCOHOL/DRUGS (USE WHEN ARREST IS EFFECTED)" ~ "ALCOHOL/DRUG INFLUENCE",
+  PRIM_CONTRIBUTORY_CAUSE == "HAD BEEN DRINKING (USE WHEN ARREST IS NOT MADE)" ~ "ALCOHOL/DRUG INFLUENCE",
+  PRIM_CONTRIBUTORY_CAUSE == "EXCEEDING AUTHORIZED SPEED LIMIT" ~ "OVERSPEEDING",
+  PRIM_CONTRIBUTORY_CAUSE == "EXCEEDING SAFE SPEED FOR CONDITIONS" ~ "OVERSPEEDING",
+  PRIM_CONTRIBUTORY_CAUSE == "ANIMAL" ~ "EVASIVE ACTION DUE TO ANIMAL, OBJECT, NONMOTORIST",
+  PRIM_CONTRIBUTORY_CAUSE == "BICYCLE ADVANCING LEGALLY ON RED LIGHT" ~ "EVASIVE ACTION DUE TO ANIMAL, OBJECT, NONMOTORIST",
+  PRIM_CONTRIBUTORY_CAUSE == "MOTORCYCLE ADVANCING LEGALLY ON RED LIGHT" ~ "EVASIVE ACTION DUE TO ANIMAL, OBJECT, NONMOTORIST",
+  PRIM_CONTRIBUTORY_CAUSE == "TEXTING" ~ "CELLPHONE USAGE",
+  PRIM_CONTRIBUTORY_CAUSE == "CELL PHONE USE OTHER THAN TEXTING" ~ "CELLPHONE USAGE",
+  TRUE ~ PRIM_CONTRIBUTORY_CAUSE
+))
+preprocessed_data<-preprocessed_data[!(preprocessed_data$PRIMARY_CAUSE=="UNABLE TO DETERMINE" | preprocessed_data$PRIMARY_CAUSE=="NOT APPLICABLE"),]
+
+
+
+#FILLING THE BLANKS
+preprocessed_data$HIT_AND_RUN_I[preprocessed_data$HIT_AND_RUN_I == ""] <- "N"
+preprocessed_data$HIT_AND_RUN_I[is.na(preprocessed_data$HIT_AND_RUN_I)] <- "N"
+```
+
+```{r echo=TRUE}
+preprocessed_data
+```
+# Objective
+The objective of this project is to gain and visualize an in-depth analysis of the traffic crashes happening in Chicago. What is the primary reason behind crashes? When do crashes happen the most? Impact of number of units on Fatal Injuries?
+
+# Analysis of crashes in Chicago based on different attributes
+This analysis has been performed based on attributes like Lighting condition, in which time of the day crashes happened (Morning, Afternoon, Evening, and Night), in what direction crashes happened (North, South, West, East), how the reports have been made to the police after the crash, number of hit and run cases, analyzing number of fatal injuries versus the number of units involved, primary cause of the crash versus the damage done to the vehicle(s), road surface versus road defects. Each of the above attributes are used to examine how many crashes have happened due to that particular factor.
+
+# Lighting Condition Distribution
+As can be seen in the plot below, maximum of the crashes happened in the daylight and in darkness with lighted roads. Strangely most crashes occurred when there is visibility as opposed to dawn, dusk, and in darkness with no lighted roads. We can infer from this that maybe the travelers were more vigilant in darkness than on lighted roads.
+```{r echo=TRUE}
+lighting_table = table(preprocessed_data$LIGHTING_CONDITION)
+lighting_preprocessed_data = as.data.frame(lighting_table)
+Lighting <- reorder(lighting_preprocessed_data$Var1, +lighting_preprocessed_data$Freq)
+ggplotly(ggplot(data = lighting_preprocessed_data, aes(x = Lighting, y = Freq,)) +
+           geom_bar(stat="identity", color = "black", fill ="#69b3a2") + ggtitle("Crashes in Different Lighting Conditions") +
+           ylab("Number of Crashes") +
+           xlab("Lighting Conditions")
+         +coord_flip())
+```
+# Number of crashes in each period of the day
+From the pie chart below it can be seen that most crashes took place in the evening and night having the least percent of total crashes. This analysis of crashes per period of the day justifies the above analysis that most crashes happened during the daylight.
+```{r echo=TRUE}
+# CRASHES IN EACH PERIOD
+fig1 <- plot_ly(preprocessed_data, labels = ~DAY_PERIOD, type = 'pie', title= "Percentage of Crashes in Each Period", height=500, width=500)
+fig1
+```
+# Number of crashes in each direction
+When considering the direction along which crashes happened, West and South almost have the same percent of crashes respectively. Travelers traveling in the above directions should be careful to avoid mishaps. 
+```{r echo=TRUE}
+#CRASHES IN EACH DIRECTION
+fig2 <- plot_ly(preprocessed_data, labels = ~STREET_DIRECTION, type = 'pie', title= "Percentage of Crashes in Each Direction")
+fig2
+```
+# Number of crashes in Different Periods of the day and Different Directions
+We combined the above two pie charts' information into a single bar graph below. More crashes took place in the evening and the South and West directions. We can observe that the chances of having a crash are more during the sunsets.
+```{r echo=TRUE}
+#DIRECTION VS PERIOD
+direction_vs_period_data = preprocessed_data[,c("STREET_DIRECTION","DAY_PERIOD")]
+df_direction_period = as.data.frame(table(direction_vs_period_data$STREET_DIRECTION, direction_vs_period_data$DAY_PERIOD))
+
+colnames(df_direction_period) = c("Direction", "Period", "Frequency")
+
+ggplotly(ggplot(data = df_direction_period, aes(x = Period, y = Frequency, fill = Direction)) +
+           geom_bar(stat="identity")+ ggtitle("Crashes in different periods of the day with direction") +
+           ylab("Number of Crashes") +
+           xlab("Different Periods")+
+           labs(fill ="Different Directions")
+)
+```
+
+
+# Hit and Run cases
+Even though plotting hit-and-run cases would help analyze behavioral aspects of the public, it is still helpful information for the Chicago Police Department.
+```{r echo=TRUE}
+fig <- plot_ly(preprocessed_data, labels = ~HIT_AND_RUN_I, type = 'pie', title= "Hit and Run Crashes")
+fig
+```
+# Fatal Injuries versus Number of units
+Here we analyze the number of crashes by analyzing total fatal injuries for each number of units involved in the crash. From the graph below, we can say that at least two fatal injuries occurred until five or fewer vehicles were involved. The maximum number of one fatal injury occurred in the crash involving two vehicles. A positive from this analysis is that even though 6 or 7 or 8 units were involved in the crash, there was only one fatal injury, and that too of significantly less frequency. 
+```{r echo=TRUE}
+fatal_vs_units = preprocessed_data[,c("INJURIES_FATAL","NUM_UNITS")]
+fatal_vs_units= as.data.frame(table(fatal_vs_units$INJURIES_FATAL,fatal_vs_units$NUM_UNITS))
+
+fatal_vs_units = fatal_vs_units[!fatal_vs_units$Freq <1 , ]
+fatal_vs_units = fatal_vs_units[which(fatal_vs_units$Var1 != "0"), ]
+
+colnames(fatal_vs_units) = c("Fatal_Injuries", "Units", "Frequency")
+
+ggplotly(ggplot(data = fatal_vs_units, aes(x = Units, y = Frequency, fill = Fatal_Injuries)) +
+           geom_bar(stat="identity")
+         + ggtitle("Fatal Injuries involving Number of Units") +
+           ylab("Number of Fatal Injuries") +
+           xlab("Number of Units")+
+           labs(fill ="Fatal Injuries Categories"))
+```
+# Damage versus Primary cause
+This part of the analysis explains how much damage was incurred to the units involved factored along the primary reason behind the crash. Most of the crashes caused a damage of **over $1500** and the reason for most of such crashes was improper driving (wrong side, wrong rules). 
+```{r echo=TRUE}
+damage_vs_cause = preprocessed_data[,c("DAMAGE","PRIMARY_CAUSE")]
+
+damage_vs_cause_table = table(damage_vs_cause$DAMAGE, damage_vs_cause$PRIMARY_CAUSE)
+preprocessed_data_damage_vs_cause = as.data.frame(damage_vs_cause_table) 
+preprocessed_data_damage_vs_cause = preprocessed_data_damage_vs_cause[which(preprocessed_data_damage_vs_cause$Var1 != "0"), ]
+
+colnames(preprocessed_data_damage_vs_cause) = c("Damage", "Cause", "Frequency")
+cause <- reorder(preprocessed_data_damage_vs_cause$Cause, +preprocessed_data_damage_vs_cause$Frequency)
+# reorder(Cause, +Frequency)
+ggplotly(ggplot(data = preprocessed_data_damage_vs_cause, aes(x = cause, y = Frequency, fill = Damage)) +
+           geom_bar(stat="identity") + coord_flip()+labs(x="",y="Number of Crashes",fill="Damage"), width=1000, height=1000)
+
+```
+# Road Defects versus Road Surface
+Here we demonstrate how road surface and road defects are responsible for the crashes. Surprisingly, even though the road surface is dry most crashes took place in this category with main reason being **rut and holes** on the roads. 
+```{r echo=TRUE}
+defect_surface_data = preprocessed_data[,c("ROAD_DEFECT","ROADWAY_SURFACE_COND")]
+defect_surface_data<-defect_surface_data[!(defect_surface_data$ROAD_DEFECT=="NO DEFECTS" | defect_surface_data$ROAD_DEFECT=="UNKNOWN" | defect_surface_data$ROAD_DEFECT=="OTHER"),]
+preprocessed_data_defect_surface = as.data.frame(table(defect_surface_data$ROAD_DEFECT, defect_surface_data$ROADWAY_SURFACE_COND))
+
+preprocessed_data_defect_surface = preprocessed_data_defect_surface[which(preprocessed_data_defect_surface$Var1 != "0"), ]
+colnames(preprocessed_data_defect_surface) = c("Defects", "Road_Type", "Frequency")
+
+ggplotly(ggplot(data = preprocessed_data_defect_surface, aes(x = Road_Type, y = Frequency, fill = Defects)) +
+           geom_bar(stat="identity", aes(text=preprocessed_data_defect_surface$Freq))+ ggtitle("Crashes due to Defective Roads") +
+           ylab("Number of Crashes") +
+           xlab("Different Road Types")+
+           labs(fill ="Different types of Defects")+
+           theme(axis.text.x = element_text(angle = 45, hjust = 1))
+)
+
+# plot_ly(preprocessed_data_defect_surface, x=~preprocessed_data_defect_surface$Var1, y=~preprocessed_data_defect_surface$Freq, type="bar", xlab="Different Road Types", ylab="Number of Crashes") %>%
+#   layout(title = 'Crashes  due to Defective Roads', plot_bgcolor = "#e5ecf6", xaxis = list(title = 'Years'),
+#          yaxis = list(title = 'Number of Crashes'))
+```
+# Central Limit Theorem
+The statistical definition of Central Limit Theorem is that, given a sufficiently large sample size from a population with a finite level of variance, the mean of all sampled variables from the same population will be approximately equal to the mean of the whole population. Furthermore, these samples approximate a normal distribution regardless of the population's actual distribution shape, with their variances being approximately equal to the variance of the population as the sample size gets larger. In this project, the posted speed limit of the vehicle (speed limit while the crash happened) was considered to explain central limit theorem. Below is the population distribution of the same.
+```{r include=FALSE, echo=TRUE}
+library(tidyverse)
+library(sampling)
+library(plotly)
+library(dplyr)
+
+# Loading data
+# preprocessed_data = read_csv("~/Data/Traffic_Crashes.csv")
+
+# Population mean and Standard Deviation
+pop_mean <- mean(preprocessed_data$POSTED_SPEED_LIMIT)
+pop_sd <- sd(preprocessed_data$POSTED_SPEED_LIMIT)
+```
+
+```{r echo=TRUE}
+options(warn=-1)
+marker_style <- list(line = list(width = 0,
+                                 color = 'rgb(0, 0, 0)'));
+
+p3 <- plot_ly(alpha = 0.9, nbinsx = 30) %>% 
+  add_histogram(x = ~preprocessed_data$POSTED_SPEED_LIMIT, name = 'Population Distribution of Speed Limit', 
+                marker = marker_style) %>% 
+  add_segments(x=pop_mean, y=0, xend=pop_mean, yend=220000, line=list(dash="dash", color="blue"),name="Mean") %>% 
+  layout(yaxis2 = list(overlaying = "y", 
+                       side = "right", 
+                       rangemode = "tozero")) %>% 
+  layout(
+    title = 'Population Distribution of Speed Limit',
+    xaxis = list(title = 'Speed Limits'),
+    yaxis = list(title = 'Frequency'),
+    colorway = "orange",
+    bargap = "NA",
+    xaxis = list(zeroline = TRUE),
+    yaxis = list(zeroline = TRUE))
+p3
+```
+A total of 5000 samples were taken of sizes of 10, 20, 30, 40 to demonstrate the concept of central limit theorem. Along with the distribution of samples with each sample size, the means and standard deviations are also mentioned below which are almost equal to the population mean. 
+```{r echo=TRUE}
+# Central Limit Theorem with sample size 10
+preprocessed_data.sample <- sample(preprocessed_data$POSTED_SPEED_LIMIT, size=5000, replace=TRUE)
+samples <- 5000
+sample.size <- 10
+
+xbar10 <- numeric(samples)
+
+for (i in 1:samples) {
+  xbar10[i] <- mean(sample(preprocessed_data$POSTED_SPEED_LIMIT, size = sample.size, 
+                         replace = TRUE))
+}
+
+mx10 <- mean(xbar10)
+sdx10 <- sd(xbar10)
+# paste("Sample size:",10,"Mean:",mx10,"Standard Deviation:",sdx10)
+
+# Central Limit Theorem with sample size 20
+preprocessed_data.sample <- sample(preprocessed_data$POSTED_SPEED_LIMIT, size=5000, replace=TRUE)
+samples <- 5000
+sample.size <- 20
+
+xbar20 <- numeric(samples)
+
+for (i in 1:samples) {
+  xbar20[i] <- mean(sample(preprocessed_data$POSTED_SPEED_LIMIT, size = sample.size, 
+                         replace = TRUE))
+}
+
+mx20 <- mean(xbar20)
+sdx20 <- sd(xbar20)
+# paste("Sample size:",20,"Mean:",mx20,"Standard Deviation:",sdx20)
+
+# Central Limit Theorem with sample size 30
+preprocessed_data.sample <- sample(preprocessed_data$POSTED_SPEED_LIMIT, size=5000, replace=TRUE)
+samples <- 5000
+sample.size <- 30
+
+xbar30 <- numeric(samples)
+
+for (i in 1:samples) {
+  xbar30[i] <- mean(sample(preprocessed_data$POSTED_SPEED_LIMIT, size = sample.size, 
+                         replace = TRUE))
+}
+
+mx30 <- mean(xbar30)
+sdx30 <- sd(xbar30)
+# paste("Sample size:",30,"Mean:",mx30,"Standard Deviation:",sdx30)
+
+# Central Limit Theorem with sample size 40
+preprocessed_data.sample <- sample(preprocessed_data$POSTED_SPEED_LIMIT, size=5000, replace=TRUE)
+samples <- 5000
+sample.size <- 40
+
+xbar40 <- numeric(samples)
+
+for (i in 1:samples) {
+  xbar40[i] <- mean(sample(preprocessed_data$POSTED_SPEED_LIMIT, size = sample.size, 
+                         replace = TRUE))
+}
+
+mx40 <- mean(xbar40)
+sdx40 <- sd(xbar40)
+# paste("Sample size:",40,"Mean:",mx40,"Standard Deviation:",sdx40)
+```
+```{r}
+paste("Population mean of posted speed limit:",round(pop_mean,3))
+paste("Sample size:",10,"Mean:",mx10,"Standard Deviation:",sdx10)
+paste("Sample size:",20,"Mean:",mx20,"Standard Deviation:",sdx20)
+paste("Sample size:",30,"Mean:",mx30,"Standard Deviation:",sdx30)
+paste("Sample size:",40,"Mean:",mx40,"Standard Deviation:",sdx40)
+```
+
+```{r include=TRUE}
+marker_style <- list(line = list(width = 0,
+                                 color = 'rgb(0, 0, 0)'));
+# sample size = 10 plot
+p1 <- plot_ly(alpha = 0.5, nbinsx = 30) %>%
+  add_histogram(x = ~xbar10, name = 'Sample Size = 10',
+                marker = marker_style) %>%
+  add_segments(x=mx10, y=0, xend=mx10, yend=1300, line=list(dash="dash"), name="mean") %>%
+  layout(yaxis2 = list(overlaying = "y",
+                       side = "right",
+                       rangemode = "tozero")) %>%
+  layout(
+    xaxis = list(title = 'xbar'),
+    yaxis = list(title = 'Frequency'),
+    # colorway = "orange",
+    bargap = "NA",
+    xaxis = list(zeroline = TRUE),
+    yaxis = list(zeroline = TRUE))
+
+# # sample size = 20 plot
+p2 <- plot_ly(alpha = 0.5, nbinsx = 30) %>%
+  add_histogram(x = ~xbar20, name = 'Sample Size = 20',
+                marker = marker_style) %>%
+  add_segments(x=mx20, y=0, xend=mx20, yend=1300, line=list(dash="dash"), name="mean") %>%
+  layout(yaxis2 = list(overlaying = "y",
+                       side = "right",
+                       rangemode = "tozero")) %>%
+  layout(
+    xaxis = list(title = 'xbar'),
+    yaxis = list(title = 'Frequency'),
+    # colorway = "orange",
+    bargap = "NA",
+    xaxis = list(zeroline = TRUE),
+    yaxis = list(zeroline = TRUE))
+
+# # sample size = 30 plot
+p3 <- plot_ly(alpha = 0.5, nbinsx = 30) %>%
+  add_histogram(x = ~xbar30, name = 'Sample Size = 30',
+                marker = marker_style) %>%
+  add_segments(x=mx30, y=0, xend=mx30, yend=1300, line=list(dash="dash"), name="mean") %>%
+  layout(yaxis2 = list(overlaying = "y",
+                       side = "right",
+                       rangemode = "tozero")) %>%
+  layout(
+    xaxis = list(title = 'xbar'),
+    yaxis = list(title = 'Frequency'),
+    # colorway = "orange",
+    bargap = "NA",
+    xaxis = list(zeroline = TRUE),
+    yaxis = list(zeroline = TRUE))
+
+# # sample size = 40 plot
+p4 <- plot_ly(alpha = 0.5, nbinsx = 30) %>%
+  add_histogram(x = ~xbar40, name = 'Sample Size = 40',
+                marker = marker_style) %>%
+  add_segments(x=mx40, y=0, xend=mx40, yend=1300, line=list(dash="dash"),name="mean") %>%
+  layout(yaxis2 = list(overlaying = "y",
+                       side = "right",
+                       rangemode = "tozero")) %>%
+  layout(
+    xaxis = list(title = 'xbar'),
+    yaxis = list(title = 'Frequency'),
+    # colorway = "orange",
+    bargap = "NA",
+    xaxis = list(zeroline = TRUE),
+    yaxis = list(zeroline = TRUE))
+```
+```{r echo=TRUE}
+subplot(p1, p2, p3, p4, nrows=2, shareX = FALSE, shareY = FALSE)
+```
+
+# Number of crashes per each year
+Below boxplots show the number of crashes happened in each year from 2013 through 2021. The highest number of crashes in Chicago city were seen in the years 2018 and 2019 with median high as well. We can regard these years as most dreapreprocessed_dataul years in temrs of road crashes. Although there has been high number of crashes in 2021, there is an outlier in this year which means that one of the months in 2021 has seen less number of crashes. 
+
+```{r echo=TRUE}
+dates <- as.POSIXct(preprocessed_data$CRASH_DATE, format = "%m/%d/%Y %H:%M:%S")
+date_my <- format(dates, format = "%m/%Y")
+date_my <- paste("01/", date_my, sep='')
+
+preprocessed_data$date_month_year <- date_my
+preprocessed_data <- preprocessed_data[order(as.Date(preprocessed_data$date_month_year, format="%m/%d/%Y")),]
+
+new_preprocessed_data <- as.data.frame(table(preprocessed_data$date_month_year))
+new_preprocessed_data1 <- new_preprocessed_data[order(as.Date(new_preprocessed_data$Var1, format="%m/%d/%Y")),]
+
+sorted_dates <- as.vector(new_preprocessed_data1$Var1)
+sorted_dates <- substr(sorted_dates, 7, length(sorted_dates))
+
+rownames(new_preprocessed_data1) <- 1:nrow(new_preprocessed_data1)
+
+new_preprocessed_data1$Var1 <- sorted_dates
+new_preprocessed_data1 <- new_preprocessed_data1[-c(nrow(new_preprocessed_data1)),]
+
+plot_ly(new_preprocessed_data1, x=~new_preprocessed_data1$Var1, y=~new_preprocessed_data1$Freq, type="box", xlab="Years", ylab="Number of Crashes") %>%
+  layout(title = 'Number of Crashes per each year', plot_bgcolor = "#e5ecf6", xaxis = list(title = 'Years'),
+         yaxis = list(title = 'Number of Crashes'))
+
+```
+
+
+
+
+# Sampling of Number of Crashes via Simple Random Sampling, Systematic sampling, and Stratified Sampling
+Sampling is a method of taking a sample from the population for doing the data analysis. The sample taken is used to estimate the characteristics of the entire population. Different sampling methods include Simple Random Sampling, Systematic Sampling, and Stratified Sampling. As a small brief on each of the sampling methods, simple random sampling can be done in two ways - with and without replacement of items from the population. Here every item has the equal probability of getting selected in the sample as every other item. In systematic sampling, the **N** items from the population are partitioned into **n** (sample size) groups. Each group has k (=N/n) items. The first item for the sample is randomly selected from the first set of items in the population. After the first selection, the remaining items are selected by taking every kth item from the population. In stratified sampling, the items from the population are subdivided into subgroups based on some common characteristic. In this analysis, we examine the number of crashes based on the posted speed limit of the vehicle involved in the crash where top 5 speeds have been considered. For each of the above sampling methods mentioned above, in this analysis we considered a sample size of 50. The below graphs demonstrate the distribution of total crashes under each speed limit. The distributions are of the population (no sampling), simple random sampling without replacement, systematic sampling, and stratified sampling, respectively. 
+```{r include=FALSE}
+# Sorting the posted speed limit attribute
+sorted <- sort(table(preprocessed_data$POSTED_SPEED_LIMIT), decreasing=TRUE)
+top_5 <- sorted[1:5]
+top_5_speeds <- names(top_5)
+
+# Subsetting the population with top 5 speed limits
+top_5_preprocessed_data <- subset(preprocessed_data, preprocessed_data$POSTED_SPEED_LIMIT %in% top_5_speeds)
+```
+
+```{r include=FALSE}
+# Getting frequencies of each speed limit
+category_freq <- table(top_5_preprocessed_data$POSTED_SPEED_LIMIT)
+
+# Calculating the percentage of each groups' crashes to the entire population
+population_percents <- c()
+for (i in c(1:length(category_freq))){
+  percent <- (round(category_freq[i] / sum(category_freq),2))*100
+  population_percents[i] <- percent
+}
+
+population_mean = mean(top_5_preprocessed_data$POSTED_SPEED_LIMIT)
+population_sd = sd(top_5_preprocessed_data$POSTED_SPEED_LIMIT)
+
+# Plotting the population distribution for the same
+x <- names(category_freq)
+y <- as.vector(category_freq)
+
+text <- paste(population_percents,"% of population",sep='')
+text
+
+data <- data.frame(x,y, text)
+
+fig1 <- plot_ly(data, x = ~x, y = ~y, type = 'bar', text=text, opacity=0.5, hovertemplate = paste('%{x}','%{y}', '<br>%{text}<br>'), texttemplate = '', name="Population", textfont=list(size=8)) %>% 
+  layout(plot_bgcolor = "#e5ecf6",
+         yaxis = list(title = 'Number of Crashes'))
+
+# Simple Random Sampling without Replacement
+# Population size
+N <- nrow(top_5_preprocessed_data)
+# Sample size
+n <- 50
+
+# Initializing simple random sampling function
+s <- srswor(50, N)
+
+rows <- (1:N)[s!=0]
+rows <- rep(rows, s[s != 0])
+rows
+
+# Getting the frequencies of the samples created
+srs_freq <- table(top_5_preprocessed_data$POSTED_SPEED_LIMIT[rows])
+
+# Calculating the percentage of each groups' crashes to the sample size
+srs_percents <- c()
+for (i in c(1:length(srs_freq))){
+  percent <- (round(srs_freq[i] / sum(srs_freq),2))*100
+  srs_percents[i] <- percent
+}
+
+srs_mean = mean(top_5_preprocessed_data$POSTED_SPEED_LIMIT[rows])
+srs_sd = sd(top_5_preprocessed_data$POSTED_SPEED_LIMIT[rows])
+
+# Plotting the sample distribution for the same
+srs_x <- names(srs_freq)
+srs_y <- as.vector(srs_freq)
+
+srs_text <- paste(srs_percents,"% of sample size",sep='')
+
+srs_data <- data.frame(srs_x,srs_y,srs_text)
+
+fig2 <- plot_ly(srs_data, x = ~srs_x, y = ~srs_y, type = 'bar', text=srs_text, opacity=0.5, hovertemplate = paste('%{x}', '%{y}', '<br>%{text}<br>'), texttemplate = '', name="Simple Random Sampling", textfont=list(size=8))
+
+# Systematic Sampling
+# Calculating k for selecting every kth item
+k <- ceiling(N/n)
+r <- sample(k,1)
+
+# Performing systematic sampling
+sys <- seq(r, by=k, length=n)
+sample.sys <- top_5_preprocessed_data[sys, ]
+
+# Getting the frequencies of the samples created
+frequency <- table(sample.sys$POSTED_SPEED_LIMIT)
+
+# Calculating the percentage of each groups' crashes to the sample size
+percents <- c()
+for (i in c(1:length(frequency))){
+  percent <- (round(frequency[i] / sum(frequency),2))*100
+  percents[i] <- percent
+}
+
+sys_mean <- mean(sample.sys$POSTED_SPEED_LIMIT)
+sys_sd <- sd(sample.sys$POSTED_SPEED_LIMIT)
+
+# Plotting the sample distribution for the same
+x <- names(frequency)
+y <- as.vector(frequency)
+
+text <- paste(percents,"% of sample size",sep='')
+text
+
+data <- data.frame(x,y,text)
+
+fig3 <- plot_ly(data, x = ~x, y = ~y, type = 'bar', text=text, opacity=0.5, hovertemplate = paste('%{x}','%{y}', '<br>%{text}<br>'), texttemplate = '', name="Systematic Sampling", textfont=list(size=8)) %>% 
+  layout(plot_bgcolor = "#e5ecf6", xaxis = list(title = 'Speed Limit'),
+         yaxis = list(title = 'Number of Crashes'))
+
+# Stratified Sampling
+# Ordering the Posted speed limit attribute
+order.index <- order(top_5_preprocessed_data$POSTED_SPEED_LIMIT)
+data <- top_5_preprocessed_data[order.index, ]
+
+freq <- table(top_5_preprocessed_data$POSTED_SPEED_LIMIT)
+
+# Calculating sizes for each stratum
+sizes <- round(50 * freq / sum(freq))
+
+# Performing Stratified sampling
+st <- sampling::strata(data, stratanames = c("POSTED_SPEED_LIMIT"),
+                       size = sizes, method = "srswor")
+
+# Getting the frequencies of the samples created
+frequency <- table(st$POSTED_SPEED_LIMIT)
+
+# Calculating the percentage of each groups' crashes to the sample size
+percents <- c()
+for (i in c(1:length(frequency))){
+  percent <- (round(frequency[i] / sum(frequency),2))*100
+  percents[i] <- percent
+}
+
+strat_mean <- mean(st$POSTED_SPEED_LIMIT)
+strat_sd = sd(st$POSTED_SPEED_LIMIT)
+
+# Plotting the sample distribution for the same
+x <- names(frequency)
+y <- as.vector(frequency)
+
+text <- paste(percents,"% of sample size",sep='')
+text
+
+data <- data.frame(x,y,text)
+
+fig4 <- plot_ly(data, x = ~x, y = ~y, type = 'bar', text=text, opacity=0.5, hovertemplate = paste('%{x}','%{y}', '<br>%{text}<br>'), texttemplate = '', textposition = 'outside',name="Stratified Sampling") %>% 
+  layout(title="Number of Crashes per top 5 Speed Limits", plot_bgcolor = "#e5ecf6", xaxis = list(title = 'Speed Limit'))
+
+```
+
+```{r echo=TRUE}
+subplot(fig1, fig2, fig3, fig4, nrows=2, shareX = FALSE, shareY = FALSE)
+```
+```{r echo=TRUE}
+paste("Population mean of Number of Crashes: mean = ", round(population_mean,3),"and Standard Deviation = ", round(population_sd,3))
+
+paste("Simple Random Sampling: mean = ", round(srs_mean,3),"and Standard Deviation = ", round(srs_sd,3))
+
+paste("Systematic Sampling: mean = ", round(sys_mean,3),"and Standard Deviation = ", round(sys_sd,3))
+
+paste("Stratified Sampling: mean = ", round(strat_mean,3),"and Standard Deviation = ", round(strat_sd,3))
+```
+# Conclusion  
+
+To avoid crashes and travel safely people should take care of the following aspects:  
+
+1) Travelers should be more vigilant in daylight or on lighted roads rather than only when dark.  
+
+2) Travelers traveling in the direction West and South are supposed to be more careful as many crashes happens much frequently in these directions compared to others.  
+
+3) Travelers should follow traffic rules properly and avoid improper driving (wrong side).  
+
+4) Travelers should not drive too close to other vehicles.  
+
+5) Travelers should not fail to yield the right of way, which means allow other vehicles to enter the intersection before doing so yourself.  
+
+6) Even though travelers are traveling on the dry road surface, they should be wary of road defects like ruts, holes, and worn surfaces. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
